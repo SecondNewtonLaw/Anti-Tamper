@@ -1,0 +1,28 @@
+{
+  "name": "zoop",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "Actor": {
+        "$className": "Actor",
+        "$path": "src/Actor",
+        "$ignoreUnknownInstances": false,
+        "__dependencies": {
+          "$path": "Packages",
+          "$className": "Folder",
+          "$ignoreUnknownInstances": false
+        }
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "ZoopActor": {
+        "$className": "Actor",
+        "$path": "src/Server",
+        "$ignoreUnknownInstances": false
+      }
+    }
+  }
+}

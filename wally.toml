@@ -1,0 +1,8 @@
+[package]
+name = "roale/zoop"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+tabletobuffer = "secondnewtonlaw/tabletobuffer@0.1.2"

@@ -169,8 +169,8 @@ local HandshakeMetadata = tabletobuffer.TableAsBuffer({
 
 zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
 	--[[
-        The only time the event is called is when doing the initial Handshake, which we just record to a BufferAsTable construct.
-
+        The only time the event is called is when doing the initial Handshake, which returns us a certain spec for the clients' heartbeat.
+        Which we just record to a BufferAsTable construct to remain as stealthy as possible with it, so we cannot getgcd'.
     ]]
 
 	local sRet = requestSerializer.Deserialize(buf)

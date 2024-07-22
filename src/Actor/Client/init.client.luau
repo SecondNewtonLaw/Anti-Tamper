@@ -1,6 +1,7 @@
 --!nonstrict
 local Runner = script.Parent
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ScriptContext = game:GetService("ScriptContext")
 
@@ -230,9 +231,74 @@ zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
 	end)
 end)
 
+do
+	local playerInformationSerializer = tabletobuffer
+		.GetDeserializerBuilder()
+		.booleanWithName("Alive")
+		.doubleWithName("WalkSpeed")
+		.doubleWithName("Health")
+		.vectorWithName("HumanoidRootPart_Position")
+		.vectorWithName("HumanoidRootPart_Rotation")
+		.build() :: TypeDefinitions.Serializer<{
+		Alive: boolean,
+		WalkSpeed: number,
+		Health: number,
+		HumanoidRootPart_Position: Vector3,
+		HumanoidRootPart_Rotation: Vector3,
+	}>
+
+	local lastSuccess = tick()
+
+	Runner:BindToMessageParallel("__GET_PLAYER_INFO", function(buf: buffer)
+		if not buf then
+			return -- No buffer provided, no information to validate with.
+		end
+		local playerInfo = playerInformationSerializer.Deserialize(buf)
+
+		if Players.LocalPlayer.Character == nil and playerInfo.Alive then
+			-- Suspicious.
+			return
+		end
+
+		local humanoid = Players.LocalPlayer.Character:WaitForChild("Humanoid", 2) :: Humanoid
+
+		if not humanoid then
+			-- This makes no sense.
+			return
+		end
+
+		if math.round(humanoid.Health) ~= math.round(playerInfo.Health) then
+			return -- Assuming this fires the same frame, why would the health be different this much?
+		end
+
+		if math.round(humanoid.WalkSpeed) ~= math.round(playerInfo.WalkSpeed) then
+			return -- Assuming this fires the same frame, why would the WalkSpeed be different?
+		end
+
+		lastSuccess = tick()
+	end)
+
+	task.spawn(function()
+		while task.wait(1) do
+			Runner:SendMessage("__GET_PLAYER_INFO")
+			if tick() - lastSuccess > 10 then
+				-- Suspicious. Perhaps tampering?
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = 0x01,
+						DetectionName = "Humanoid Data Mismatch",
+					}),
+				}))
+			end
+		end
+	end)
+end
+
 local errorConnection = ScriptContext.Error:ConnectParallel(
 	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer) end
 )
+
 do
 	--[[
 		Making cl like this makes it be referenced as an upvalue, most people will search for constants, ignoring upvalues, just one more thing to add to the list for fun!

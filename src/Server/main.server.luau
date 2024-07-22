@@ -16,9 +16,10 @@ CommunicationRemoteEvent.Name = "__zoop_net"
 CommunicationRemoteEvent.Parent = ReplicatedStorage
 
 local ProtocolIdentifiers = tabletobuffer.TableAsBuffer({
-	Handshake = 0x4,
-	Heartbeat = 0x8,
-	BanPlayer = 0x16,
+	Handshake = 0x4, -- Implemented
+	Heartbeat = 0x8, -- Implemented
+	BanPlayer = 0x16, -- Implemented
+	ReportDetection = 0x20,
 })
 
 local requestSerializer = tabletobuffer
@@ -26,6 +27,13 @@ local requestSerializer = tabletobuffer
 	.int8WithName("RequestType")
 	.bufferWithName("RequestData", 4096)
 	.build() :: TypeDefinitions.Serializer<{ RequestType: number, RequestData: buffer }>
+
+local ReportDetectionToServerRequestSerializer = tabletobuffer
+	.GetDeserializerBuilder()
+	.int32WithName("DetectionID")
+	.stringWithName("DetectionName", 256)
+	.bufferWithName("userdata", 512)
+	.build()
 
 local HandshakeToClientRequestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
@@ -160,79 +168,87 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 			})
 		end
 	elseif requestInformation.RequestType == ProtocolIdentifiers.Heartbeat then
-		local successful, heartbeat = pcall(function()
-			return HeartbeatRequestSerializer.Deserialize(requestInformation.RequestData)
+		local s, err = pcall(function()
+			local successful, heartbeat = pcall(function()
+				return HeartbeatRequestSerializer.Deserialize(requestInformation.RequestData)
+			end)
+
+			if not successful then
+				warn("Deserialization unsuccessful.")
+				return "e"
+			end
+
+			local sharedInformation = heartbeatList[player.UserId]
+			local rand = (sharedInformation :: any).AgreedUponRandom :: Random
+
+			local magicalBufferLength = buffer.len(heartbeat.MagicalBuffer)
+			if
+				magicalBufferLength > 1024
+				or magicalBufferLength < sharedInformation.AgreedUponBufferInfo.AgreedUponBufferLength
+			then
+				warn("Buffer size suspicious.")
+				return "e"
+			end
+
+			local compression = buffer.readu8(heartbeat.MagicalBuffer, 0x0)
+
+			if compression ~= sharedInformation.AgreedUponBufferInfo.AgreedUponCompression then
+				warn("buffer compression mismatched.")
+				return "e"
+			end
+
+			local stringLength = buffer.readi32(heartbeat.MagicalBuffer, 0x1)
+
+			if stringLength > (0x1 + 0x4 + magicalBufferLength) then
+				warn("buffer string length bigger than buffer.")
+				return "e"
+			end
+
+			local rawHeartbeatString = buffer.readstring(heartbeat.MagicalBuffer, 0x1 + 0x4, stringLength)
+
+			local heartbeatString = compression == 0x1 and lualzw.decompress(rawHeartbeatString) or rawHeartbeatString
+			local agreedByte = string.byte(sharedInformation.AgreedUponBufferInfo.AgreedUponBufferContents, 1)
+
+			for _, char in { heartbeatString:byte(1) } do
+				if char ~= agreedByte then
+					print("buffer byte mistmatch.")
+					return "e"
+				end
+			end
+
+			if
+				heartbeat.MagicalResult
+				~= (sharedInformation.AgreedUponNumber_1 + sharedInformation.AgreedUponNumber_2)
+					* rand:NextInteger(0x1, 0x2)
+			then
+				warn("Magical result is not (Num1 + Num2) * agree_random:int32(0x1, 0x2)")
+				return "e"
+			end
+
+			if
+				heartbeat.MagicalNumber_1
+				~= (sharedInformation.AgreedUponNumber_1 - sharedInformation.AgreedUponNumber_2)
+					* rand:NextInteger(0x2, 0x4)
+			then
+				warn("Magical num 1 is not (Num1 - Num2) * agree_random:int32(0x2, 0x4)")
+				return "e"
+			end
+			if
+				heartbeat.MagicalNumber_2
+				~= (sharedInformation.AgreedUponNumber_2 - sharedInformation.AgreedUponNumber_1)
+					* rand:NextInteger(0x4, 0x6)
+			then
+				warn("Magical num 2 is not (Num2 - Num1) * agree_random:int32(0x4, 0x6) ")
+				return "e"
+			end
+			heartbeatList[player.UserId].LastContact = tick()
+
+			return "s"
 		end)
 
-		if not successful then
-			warn("Deserialization unsuccessful.")
-			return
+		if not s or s and err == "e" then
+			warn(`A heartbeat with a player has failed. This has been logged.`)
 		end
-
-		local sharedInformation = heartbeatList[player.UserId]
-		local rand = (sharedInformation :: any).AgreedUponRandom :: Random
-
-		local magicalBufferLength = buffer.len(heartbeat.MagicalBuffer)
-		if
-			magicalBufferLength > 1024
-			or magicalBufferLength < sharedInformation.AgreedUponBufferInfo.AgreedUponBufferLength
-		then
-			print("Buffer mismatch.")
-			return
-		end
-
-		local compression = buffer.readu8(heartbeat.MagicalBuffer, 0x0)
-
-		if compression ~= sharedInformation.AgreedUponBufferInfo.AgreedUponCompression then
-			print("Buffer compression mismatched.")
-			return
-		end
-
-		local stringLength = buffer.readi32(heartbeat.MagicalBuffer, 0x1)
-
-		if stringLength > (0x1 + 0x4 + magicalBufferLength) then
-			print("Buffer string length messed up.")
-			return
-		end
-
-		local rawHeartbeatString = buffer.readstring(heartbeat.MagicalBuffer, 0x1 + 0x4, stringLength)
-
-		local heartbeatString = compression == 0x1 and lualzw.decompress(rawHeartbeatString) or rawHeartbeatString
-		local agreedByte = string.byte(sharedInformation.AgreedUponBufferInfo.AgreedUponBufferContents, 1)
-
-		for _, char in { heartbeatString:byte(1) } do
-			if char ~= agreedByte then
-				print("buffer byte mistmatch.")
-				return
-			end
-		end
-
-		if
-			heartbeat.MagicalResult
-			~= (sharedInformation.AgreedUponNumber_1 + sharedInformation.AgreedUponNumber_2)
-				* rand:NextInteger(0x1, 0x2)
-		then
-			warn("Magical result is not (Num1 + Num2) * agree_random:int32(0x1, 0x2)")
-			return
-		end
-
-		if
-			heartbeat.MagicalNumber_1
-			~= (sharedInformation.AgreedUponNumber_1 - sharedInformation.AgreedUponNumber_2)
-				* rand:NextInteger(0x2, 0x4)
-		then
-			warn("Magical num 1 is not (Num1 - Num2) * agree_random:int32(0x2, 0x4)")
-			return
-		end
-		if
-			heartbeat.MagicalNumber_2
-			~= (sharedInformation.AgreedUponNumber_2 - sharedInformation.AgreedUponNumber_1)
-				* rand:NextInteger(0x4, 0x6)
-		then
-			warn("Magical num 2 is not (Num2 - Num1) * agree_random:int32(0x4, 0x6) ")
-			return
-		end
-		heartbeatList[player.UserId].LastContact = tick()
 	end
 end)
 
@@ -259,4 +275,28 @@ Players.PlayerAdded:Connect(function(newPlayer: Player)
 	})
 	print(requestSerializer.Deserialize(nBuf))
 	CommunicationRemoteEvent:FireClient(newPlayer, nBuf)
+
+	task.delay(5, function()
+		if heartbeatList[newPlayer.UserId] and heartbeatList[newPlayer.UserId].LastContact == -1 then
+			newPlayer:Kick("Client-Server Handshake failed.")
+		end
+	end)
+	task.spawn(function()
+		task.desynchronize() -- Exec on parallel.
+		local rand = Random.new(task.wait(0.3) * tick())
+		local oldLastContact = heartbeatList[newPlayer.UserId].LastContact
+		local heartbeatLeniance = rand:NextInteger(3, 5) -- The amount of heartbeats the client is allowed to miss before initiating a disconnect
+
+		while task.wait((6 * heartbeatLeniance) + newPlayer:GetNetworkPing() * 2) do
+			if heartbeatList[newPlayer.UserId].LastContact == oldLastContact then
+				newPlayer:Kick("Client initiated disconnect.")
+			end
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(leavingPlayer: Player)
+	if heartbeatList[leavingPlayer.UserId] then
+		heartbeatList[leavingPlayer.UserId] = nil
+	end
 end)

@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local TypeDefinitions = require(
-	ReplicatedFirst.Actor.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.2"].tabletobuffer.TypeDefinitions
+	ReplicatedFirst.Actor.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.5"].tabletobuffer.TypeDefinitions
 )
 local BanReasons = require(ServerScriptService.ZoopActor.BanReasons)
 local tabletobuffer = require(ReplicatedFirst.Actor.__dependencies.tabletobuffer)
@@ -25,7 +25,7 @@ local ProtocolIdentifiers = tabletobuffer.TableAsBuffer({
 local requestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
 	.int8WithName("RequestType")
-	.bufferWithName("RequestData", 4096)
+	.bufferWithName("RequestData", 0x2000)
 	.build() :: TypeDefinitions.Serializer<{ RequestType: number, RequestData: buffer }>
 
 local ReportDetectionToServerRequestSerializer = tabletobuffer
@@ -45,7 +45,7 @@ local HandshakeToClientRequestSerializer = tabletobuffer
 		tabletobuffer
 			.GetDeserializerBuilder()
 			.int8WithName("AgreedUponCompression")
-			.stringWithName("AgreedUponBufferContents", 1)
+			.stringWithName("AgreedUponBufferContents", 16)
 			.int16WithName("AgreedUponBufferLength")
 			.build()
 	)
@@ -62,7 +62,7 @@ local HeartbeatRequestSerializer = tabletobuffer
 	.int32WithName("MagicalNumber_1")
 	.int32WithName("MagicalNumber_2")
 	.int32WithName("MagicalResult")
-	.bufferWithName("MagicalBuffer", 1024)
+	.bufferWithName("MagicalBuffer", 0x1000)
 	.build() :: TypeDefinitions.Serializer<{ MagicalNumber_1: number, MagicalNumber_2: number, MagicalResult: number, MagicalBuffer: buffer }>
 
 local heartbeatList = {
@@ -103,7 +103,6 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		print("Received buffer: ", buffer.tostring(buf))
 		return
 	end
-	print("Received buffer: ", buffer.tostring(buf))
 
 	local success, requestInformation = pcall(function()
 		return requestSerializer.Deserialize(buf)
@@ -183,7 +182,7 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 
 			local magicalBufferLength = buffer.len(heartbeat.MagicalBuffer)
 			if
-				magicalBufferLength > 1024
+				magicalBufferLength > 0x1000
 				or magicalBufferLength < sharedInformation.AgreedUponBufferInfo.AgreedUponBufferLength
 			then
 				warn("Buffer size suspicious.")
@@ -252,17 +251,27 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 	end
 end)
 
+local function randomstring(len)
+	local Str = ""
+
+	for _ = 1, len do
+		Str ..= string.char(math.random(1, 127))
+	end
+
+	return Str
+end
+
 Players.PlayerAdded:Connect(function(newPlayer: Player)
 	local seed = math.random(-32767, 32767)
 	heartbeatList[newPlayer.UserId] = {
 		AgreedUponNumber_1 = math.random(-32767, 32767),
 		AgreedUponNumber_2 = math.random(-32767, 32767),
-		AgreedUponSeed = seed,
+		AgreedUponSeed = seed :: number,
 
 		AgreedUponBufferInfo = {
 			AgreedUponCompression = math.random(0, 1), -- 0x0 = no compress, 0x1 = lualzw
-			AgreedUponBufferContents = math.random(0, 1) and "A" or "B",
-			AgreedUponBufferLength = 0x100 + 0x4 + 0x1,
+			AgreedUponBufferContents = randomstring(16),
+			AgreedUponBufferLength = 0x100 * 8 + 0x4 + 0x1,
 		},
 
 		LastContact = -1, -- -1 == never
@@ -273,7 +282,35 @@ Players.PlayerAdded:Connect(function(newPlayer: Player)
 		RequestType = ProtocolIdentifiers.Handshake,
 		RequestData = HandshakeToClientRequestSerializer.Serialize(heartbeatList[newPlayer.UserId]),
 	})
-	print(requestSerializer.Deserialize(nBuf))
+
+	local playerHeartbeatCfg = heartbeatList[newPlayer.UserId]
+	print(
+		string.format(
+			[[
+Initiating Handshake with %s...
+		
+Handshake_Config: {
+	AgreedUponNumber_1 = %d,
+	AgreedUponNumber_2 = %d,
+	AgreedUponSeed = %d,
+
+	AgreedUponBufferInfo = {
+		AgreedUponCompression = '%s',
+		AgreedUponBufferContents = '%s',
+		AgreedUponBufferLength = '%d',
+	}
+}
+]],
+			newPlayer.Name,
+			playerHeartbeatCfg.AgreedUponNumber_1,
+			playerHeartbeatCfg.AgreedUponNumber_2,
+			playerHeartbeatCfg.AgreedUponSeed :: number,
+			playerHeartbeatCfg.AgreedUponBufferInfo.AgreedUponCompression == 1 and "lzw" or "none",
+			playerHeartbeatCfg.AgreedUponBufferInfo.AgreedUponBufferContents,
+			playerHeartbeatCfg.AgreedUponBufferInfo.AgreedUponBufferLength
+		)
+	)
+
 	CommunicationRemoteEvent:FireClient(newPlayer, nBuf)
 
 	task.delay(5, function()

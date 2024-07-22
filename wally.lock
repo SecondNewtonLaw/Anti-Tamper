@@ -5,9 +5,9 @@ registry = "test"
 [[package]]
 name = "roale/zoop"
 version = "0.1.0"
-dependencies = [["tabletobuffer", "secondnewtonlaw/tabletobuffer@0.1.2"]]
+dependencies = [["tabletobuffer", "secondnewtonlaw/tabletobuffer@0.1.5"]]
 
 [[package]]
 name = "secondnewtonlaw/tabletobuffer"
-version = "0.1.2"
+version = "0.1.5"
 dependencies = []

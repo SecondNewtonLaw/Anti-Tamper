@@ -5,10 +5,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ScriptContext = game:GetService("ScriptContext")
 
 local lualzw =
-	require(script.Parent.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.2"].tabletobuffer.External.lualzw)
+	require(script.Parent.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.5"].tabletobuffer.External.lualzw)
 local tabletobuffer = require(script.Parent.__dependencies.tabletobuffer)
 local TypeDefinitions =
-	require(script.Parent.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.2"].tabletobuffer.TypeDefinitions)
+	require(script.Parent.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.5"].tabletobuffer.TypeDefinitions)
 
 --// [[ INIT ]] \\--
 
@@ -122,7 +122,7 @@ local ProtocolIdentifiers = tabletobuffer.TableAsBuffer({
 local requestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
 	.int8WithName("RequestType")
-	.bufferWithName("RequestData", 4096)
+	.bufferWithName("RequestData", 0x2000)
 	.build() :: TypeDefinitions.Serializer<{ RequestType: number, RequestData: buffer }>
 
 local HandshakeToClientRequestSerializer = tabletobuffer
@@ -135,7 +135,7 @@ local HandshakeToClientRequestSerializer = tabletobuffer
 		tabletobuffer
 			.GetDeserializerBuilder()
 			.int8WithName("AgreedUponCompression")
-			.stringWithName("AgreedUponBufferContents", 1)
+			.stringWithName("AgreedUponBufferContents", 16)
 			.int16WithName("AgreedUponBufferLength")
 			.build()
 	)
@@ -159,7 +159,7 @@ local HeartbeatRequestSerializer = tabletobuffer
 	.int32WithName("MagicalNumber_1")
 	.int32WithName("MagicalNumber_2")
 	.int32WithName("MagicalResult")
-	.bufferWithName("MagicalBuffer", 1024)
+	.bufferWithName("MagicalBuffer", 0x1000)
 	.build() :: TypeDefinitions.Serializer<{ MagicalNumber_1: number, MagicalNumber_2: number, MagicalResult: number, MagicalBuffer: buffer }>
 
 -- #endregion net

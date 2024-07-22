@@ -13,7 +13,8 @@
           "$className": "Folder",
           "$ignoreUnknownInstances": true
         }
-      }
+      },
+      "$path": "src/Client"
     },
     "ServerScriptService": {
       "$className": "ServerScriptService",

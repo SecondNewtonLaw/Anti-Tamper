@@ -11,7 +11,7 @@ local BanReasons = require(ServerScriptService.ZoopActor.BanReasons)
 local tabletobuffer = require(ReplicatedFirst.Actor.__dependencies.tabletobuffer)
 local lualzw = require(ReplicatedStorage.lualzw)
 
-local CommunicationRemoteEvent = Instance.new("RemoteEvent")
+local CommunicationRemoteEvent: RemoteEvent = Instance.new("RemoteEvent")
 CommunicationRemoteEvent.Name = "__zoop_net"
 CommunicationRemoteEvent.Parent = ReplicatedStorage
 
@@ -31,6 +31,7 @@ local HandshakeToClientRequestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
 	.int16WithName("AgreedUponNumber_1")
 	.int16WithName("AgreedUponNumber_2")
+	.int16WithName("AgreedUponSeed")
 	.tableWithName(
 		"AgreedUponBufferInfo",
 		tabletobuffer
@@ -50,8 +51,8 @@ local BanPlayerRequestSerializer = tabletobuffer
 
 local HeartbeatRequestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
-	.int16WithName("MagicalNumber_1")
-	.int16WithName("MagicalNumber_2")
+	.int32WithName("MagicalNumber_1")
+	.int32WithName("MagicalNumber_2")
 	.int32WithName("MagicalResult")
 	.bufferWithName("MagicalBuffer", 1024)
 	.build() :: TypeDefinitions.Serializer<{ MagicalNumber_1: number, MagicalNumber_2: number, MagicalResult: number, MagicalBuffer: buffer }>
@@ -65,7 +66,7 @@ local heartbeatList = {
 		AgreedUponBufferInfo = {
 			AgreedUponCompression = 0x1, -- 0x1 == lualzw. 0x0 == none
 			AgreedUponBufferContents = "A", -- Repeated string
-			AgreedUponBufferLength = 0x100,
+			AgreedUponBufferLength = 0x100 + 0x1 + 0x4,
 		},
 	},
 }
@@ -94,6 +95,7 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		print("Received buffer: ", buffer.tostring(buf))
 		return
 	end
+	print("Received buffer: ", buffer.tostring(buf))
 
 	local success, requestInformation = pcall(function()
 		return requestSerializer.Deserialize(buf)
@@ -168,8 +170,13 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		end
 
 		local sharedInformation = heartbeatList[player.UserId]
+		local rand = (sharedInformation :: any).AgreedUponRandom :: Random
 
-		if buffer.len(heartbeat.MagicalBuffer) ~= sharedInformation.AgreedUponBufferInfo.AgreedUponBufferLength then
+		local magicalBufferLength = buffer.len(heartbeat.MagicalBuffer)
+		if
+			magicalBufferLength > 1024
+			or magicalBufferLength < sharedInformation.AgreedUponBufferInfo.AgreedUponBufferLength
+		then
 			print("Buffer mismatch.")
 			return
 		end
@@ -183,13 +190,14 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 
 		local stringLength = buffer.readi32(heartbeat.MagicalBuffer, 0x1)
 
-		if stringLength > (0x1 + 0x4 + buffer.len(heartbeat.MagicalBuffer)) then
+		if stringLength > (0x1 + 0x4 + magicalBufferLength) then
 			print("Buffer string length messed up.")
 			return
 		end
 
-		local heartbeatString = buffer.readstring(heartbeat.MagicalBuffer, 0x1 + 0x4, stringLength)
+		local rawHeartbeatString = buffer.readstring(heartbeat.MagicalBuffer, 0x1 + 0x4, stringLength)
 
+		local heartbeatString = compression == 0x1 and lualzw.decompress(rawHeartbeatString) or rawHeartbeatString
 		local agreedByte = string.byte(sharedInformation.AgreedUponBufferInfo.AgreedUponBufferContents, 1)
 
 		for _, char in { heartbeatString:byte(1) } do
@@ -199,21 +207,29 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 			end
 		end
 
-		if heartbeat.MagicalResult ~= (sharedInformation.AgreedUponNumber_1 + sharedInformation.AgreedUponNumber_2) then
-			warn("Magical result is not Num1 + Num2")
+		if
+			heartbeat.MagicalResult
+			~= (sharedInformation.AgreedUponNumber_1 + sharedInformation.AgreedUponNumber_2)
+				* rand:NextInteger(0x1, 0x2)
+		then
+			warn("Magical result is not (Num1 + Num2) * agree_random:int32(0x1, 0x2)")
 			return
 		end
 
 		if
-			heartbeat.MagicalNumber_1 ~= (sharedInformation.AgreedUponNumber_1 - sharedInformation.AgreedUponNumber_2)
+			heartbeat.MagicalNumber_1
+			~= (sharedInformation.AgreedUponNumber_1 - sharedInformation.AgreedUponNumber_2)
+				* rand:NextInteger(0x2, 0x4)
 		then
-			warn("Magical num 1 is not Num1 - Num2")
+			warn("Magical num 1 is not (Num1 - Num2) * agree_random:int32(0x2, 0x4)")
 			return
 		end
 		if
-			heartbeat.MagicalNumber_2 ~= (sharedInformation.AgreedUponNumber_2 - sharedInformation.AgreedUponNumber_1)
+			heartbeat.MagicalNumber_2
+			~= (sharedInformation.AgreedUponNumber_2 - sharedInformation.AgreedUponNumber_1)
+				* rand:NextInteger(0x4, 0x6)
 		then
-			warn("Magical num 2 is not Num2 - Num1")
+			warn("Magical num 2 is not (Num2 - Num1) * agree_random:int32(0x4, 0x6) ")
 			return
 		end
 		heartbeatList[player.UserId].LastContact = tick()
@@ -221,24 +237,26 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 end)
 
 Players.PlayerAdded:Connect(function(newPlayer: Player)
+	local seed = math.random(-32767, 32767)
 	heartbeatList[newPlayer.UserId] = {
 		AgreedUponNumber_1 = math.random(-32767, 32767),
 		AgreedUponNumber_2 = math.random(-32767, 32767),
+		AgreedUponSeed = seed,
 
 		AgreedUponBufferInfo = {
 			AgreedUponCompression = math.random(0, 1), -- 0x0 = no compress, 0x1 = lualzw
 			AgreedUponBufferContents = math.random(0, 1) and "A" or "B",
-			AgreedUponBufferLength = 0x100 + 0x1,
+			AgreedUponBufferLength = 0x100 + 0x4 + 0x1,
 		},
 
 		LastContact = -1, -- -1 == never
+		AgreedUponRandom = Random.new(seed) :: Random,
 	}
 
-	CommunicationRemoteEvent:FireClient(
-		newPlayer,
-		requestSerializer.Serialize({
-			RequestType = ProtocolIdentifiers.Handshake,
-			RequestData = HandshakeToClientRequestSerializer.Serialize(heartbeatList[newPlayer.UserId]),
-		})
-	)
+	local nBuf = requestSerializer.Serialize({
+		RequestType = ProtocolIdentifiers.Handshake,
+		RequestData = HandshakeToClientRequestSerializer.Serialize(heartbeatList[newPlayer.UserId]),
+	})
+	print(requestSerializer.Deserialize(nBuf))
+	CommunicationRemoteEvent:FireClient(newPlayer, nBuf)
 end)

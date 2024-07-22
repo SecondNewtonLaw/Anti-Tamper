@@ -2,6 +2,7 @@
 local Runner = script.Parent
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ScriptContext = game:GetService("ScriptContext")
 
 local lualzw =
 	require(script.Parent.__dependencies._Index["secondnewtonlaw_tabletobuffer@0.1.2"].tabletobuffer.External.lualzw)
@@ -112,9 +113,10 @@ local zoopNet: RemoteEvent = ReplicatedStorage:WaitForChild("__zoop_net")
 -- #region net
 
 local ProtocolIdentifiers = tabletobuffer.TableAsBuffer({
-	Handshake = 0x4,
-	Heartbeat = 0x8,
-	BanPlayer = 0x16,
+	Handshake = 0x4, -- Implemented
+	Heartbeat = 0x8, -- Implemented
+	BanPlayer = 0x16, -- Implemented
+	ReportDetection = 0x20,
 })
 
 local requestSerializer = tabletobuffer
@@ -138,6 +140,13 @@ local HandshakeToClientRequestSerializer = tabletobuffer
 			.build()
 	)
 	.build()
+
+local ReportDetectionToServerRequestSerializer = tabletobuffer
+	.GetDeserializerBuilder()
+	.int32WithName("DetectionID")
+	.stringWithName("DetectionName", 256)
+	.bufferWithName("userdata", 512)
+	.build() :: TypeDefinitions.Serializer<{ DetectionID: number, DetectionName: string, userdata: buffer }>
 
 local BanPlayerRequestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
@@ -174,6 +183,10 @@ zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
     ]]
 
 	local sRet = requestSerializer.Deserialize(buf)
+	if sRet.RequestType ~= ProtocolIdentifiers.Handshake then
+		-- It does not really matter, as we will be eventually kicked from the server due to not sending Heartbeat packets.
+		return
+	end
 	HandshakeMetadata = tabletobuffer.TableAsBuffer(HandshakeToClientRequestSerializer.Deserialize(sRet.RequestData))
 
 	task.spawn(function()
@@ -216,3 +229,38 @@ zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
 		end
 	end)
 end)
+
+local errorConnection = ScriptContext.Error:ConnectParallel(
+	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer) end
+)
+do
+	--[[
+		Making cl like this makes it be referenced as an upvalue, most people will search for constants, ignoring upvalues, just one more thing to add to the list for fun!
+	]]
+	local cl
+	task.spawn(function()
+		local detectionId = ""
+		local detectionName = ""
+		cl = function()
+			detectionId = "__ERROR_TRACE_EVENT_DISCONNECT"
+			detectionName = "ERROR_EVENTDISCONNECTED"
+		end
+		cl()
+
+		while task.wait(1) do
+			if not errorConnection.Connected then
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+			end
+		end
+	end)
+
+	if not cl then
+		cl()
+	end
+end

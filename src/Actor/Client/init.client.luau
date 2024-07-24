@@ -185,7 +185,6 @@ do
 
 	task.spawn(function()
 		while task.wait(1) do
-			Runner:SendMessage("__GET_PLAYER_INFO")
 			if tick() - lastSuccess > 10 then
 				-- Suspicious. Perhaps tampering?
 				zoopNet:FireServer(requestSerializer.Serialize({
@@ -200,6 +199,10 @@ do
 	end)
 end
 
+local function obtainScriptName(trace: string)
+	return string.split(trace, ",")[1]
+end
+
 local function obtainLineNumber(trace: string)
 	-- The last stack trace is what we care about.
 	-- We must avoid using strings other than light stuff, else we will getgcd with function consts/uprefs, bad stuff.
@@ -208,7 +211,8 @@ end
 
 local errorConnection = ScriptContext.Error:ConnectParallel(
 	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer)
-		-- print(obtainLineNumber(stackTrace))
+		local s = string.match(message, "is not a valid member of DataModel")
+		print(obtainScriptName(stackTrace), ":", obtainLineNumber(stackTrace))
 	end
 )
 
@@ -221,7 +225,7 @@ do
 		local detectionId = ""
 		local detectionName = ""
 		cl = function()
-			detectionId = "__ERROR_TRACE_EVENT_DISCONNECT"
+			detectionId = 0x01
 			detectionName = "ERROR_EVENTDISCONNECTED"
 		end
 		cl()
@@ -242,4 +246,156 @@ do
 	if not cl then
 		cl()
 	end
+end
+
+do
+	local cl_1, cl_2, cl_3
+	task.spawn(function()
+		local detectionId = ""
+		local detectionName = ""
+		cl_1 = function()
+			detectionId = 0x00
+			detectionName = "__CLIENTTOCLIENT__HANDSHAKE"
+		end
+		cl_2 = function()
+			detectionId = 0x01
+			detectionName = "__CLIENTTOCLIENT__HANDSHAKE"
+		end
+		cl_3 = function()
+			detectionId = 0x02
+			detectionName = "__CLIENTTOCLIENT__HANDSHAKE"
+		end
+		local random = nil
+		local seed = 0
+		Runner:BindToMessage("__HANDSHAKE_WITH_PÄRAMETERS", function(backingMagic: number)
+			if not random then
+				random = Random.new(backingMagic)
+				seed = backingMagic
+				return
+			end
+
+			cl_1()
+
+			zoopNet:FireServer(requestSerializer.Serialize({
+				RequestType = ProtocolIdentifiers.ReportDetection,
+				RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+					DetectionID = detectionId, --
+					DetectionName = detectionName,
+				}),
+			}))
+		end)
+		local ClientToActorHeartbeatSerializer = tabletobuffer
+			.GetDeserializerBuilder()
+			.int32WithName("FirstMagic")
+			.doubleWithName("SecondMagic")
+			.doubleWithName("ThirdMagic")
+			.doubleWithName("RunAt")
+			.build()
+
+		local lastRunTime = nil
+
+		Runner:BindToMessage("__Heartbeat", function(buf: buffer)
+			if lastRunTime and lastRunTime - tick() > 4 then
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+
+				return
+			end
+			if not random then
+				cl_2()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+			local s, initialHeartbeat = pcall(function()
+				return ClientToActorHeartbeatSerializer.Deserialize(buf)
+			end)
+
+			if not s then
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+
+			local expectedFirst = random:NextInteger(math.round(seed / 2), seed)
+			if expectedFirst ~= initialHeartbeat.FirstMagic then
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+
+			local expectedSecond = bit32.bxor(expectedFirst, seed)
+
+			if expectedSecond ~= initialHeartbeat.SecondMagic then
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+
+			local expectedThird = initialHeartbeat.RunAt * expectedSecond
+
+			if expectedThird ~= initialHeartbeat.ThirdMagic then
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+
+			if tick() - initialHeartbeat.RunAt > 2 then
+				-- this is a terrible drop in fps no cap.
+				cl_3()
+
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = detectionId, --
+						DetectionName = detectionName,
+					}),
+				}))
+				return
+			end
+
+			lastRunTime = tick()
+		end)
+	end)
 end

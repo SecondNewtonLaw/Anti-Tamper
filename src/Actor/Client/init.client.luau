@@ -200,8 +200,16 @@ do
 	end)
 end
 
+local function obtainLineNumber(trace: string)
+	-- The last stack trace is what we care about.
+	-- We must avoid using strings other than light stuff, else we will getgcd with function consts/uprefs, bad stuff.
+	return string.split(trace, " ")[3]:split("\n")[1]
+end
+
 local errorConnection = ScriptContext.Error:ConnectParallel(
-	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer) end
+	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer)
+		-- print(obtainLineNumber(stackTrace))
+	end
 )
 
 do

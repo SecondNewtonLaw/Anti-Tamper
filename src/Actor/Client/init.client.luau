@@ -381,7 +381,7 @@ do
 				return
 			end
 
-			if tick() - initialHeartbeat.RunAt > 2 then
+			if tick() - initialHeartbeat.RunAt > 4 then
 				-- this is a terrible drop in fps no cap.
 				cl_3()
 
@@ -396,6 +396,23 @@ do
 			end
 
 			lastRunTime = tick()
+		end)
+
+		task.spawn(function()
+			while true do
+				task.wait(5)
+				if not lastRunTime or tick() - lastRunTime > 4 then
+					cl_3()
+
+					zoopNet:FireServer(requestSerializer.Serialize({
+						RequestType = ProtocolIdentifiers.ReportDetection,
+						RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+							DetectionID = detectionId, --
+							DetectionName = detectionName,
+						}),
+					}))
+				end
+			end
 		end)
 	end)
 end

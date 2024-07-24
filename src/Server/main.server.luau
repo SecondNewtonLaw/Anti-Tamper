@@ -246,7 +246,7 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		end)
 
 		if not s or s and err == "e" then
-			player:Kick("Heartbeat failure")
+			player:Kick("[zoop]: Heartbeat failure.")
 		end
 	end
 end)
@@ -318,7 +318,7 @@ Handshake_Config: {
 
 	task.delay(5, function()
 		if heartbeatList[newPlayer.UserId] and heartbeatList[newPlayer.UserId].LastContact == -1 then
-			newPlayer:Kick("Client-Server Handshake failed.")
+			newPlayer:Kick("[zoop] Handshake did not succeed, rejoin.")
 		else
 			print(string.format(
 				[[

@@ -114,7 +114,8 @@ zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
 				or HandshakeMetadata.AgreedUponBufferInfo.AgreedUponCompression == 0x0 and temporalBufferContents,
 			HandshakeMetadata.AgreedUponBufferInfo.AgreedUponBufferLength - 0x1 - 0x4
 		)
-		while task.wait(random:NextInteger(1, 4)) do
+		task.synchronize()
+		while true do
 			local nBuf = HeartbeatRequestSerializer.Serialize({
 				MagicalResult = (HandshakeMetadata.AgreedUponNumber_1 + HandshakeMetadata.AgreedUponNumber_2)
 					* agreedRandom:NextInteger(0x1, 0x2),
@@ -129,6 +130,8 @@ zoopNet.OnClientEvent:ConnectParallel(function(buf: buffer)
 				RequestType = ProtocolIdentifiers.Heartbeat,
 				RequestData = nBuf,
 			}))
+
+			task.wait(random:NextInteger(1, 4))
 		end
 	end)
 end)
@@ -151,7 +154,7 @@ do
 
 	local lastSuccess = tick()
 
-	Runner:BindToMessageParallel("__GET_PLAYER_INFO", function(buf: buffer)
+	Runner:BindToMessage("__GET_PLAYER_INFO", function(buf: buffer)
 		if not buf then
 			return -- No buffer provided, no information to validate with.
 		end

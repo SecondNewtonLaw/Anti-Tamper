@@ -248,6 +248,9 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		if not s or s and err == "e" then
 			player:Kick("[zoop]: Heartbeat failure.")
 		end
+	elseif requestInformation.RequestType == ProtocolIdentifiers.ReportDetection then
+		warn("Detection triggered:")
+		print(ReportDetectionToServerRequestSerializer.Deserialize(requestInformation.RequestData))
 	end
 end)
 
@@ -334,12 +337,16 @@ Handshake with %s successful.
 		task.desynchronize() -- Exec on parallel.
 		local rand = Random.new(task.wait(0.3) * tick())
 		local oldLastContact = heartbeatList[newPlayer.UserId].LastContact
-		local heartbeatLeniance = rand:NextInteger(3, 5) -- The amount of heartbeats the client is allowed to miss before initiating a disconnect
+		local heartbeatLeniance = rand:NextInteger(1, 2) -- The amount of heartbeats the client is allowed to miss before initiating a disconnect
 
 		while task.wait((6 * heartbeatLeniance) + newPlayer:GetNetworkPing() * 2) do
+			if not heartbeatList[newPlayer.UserId] then
+				return
+			end
 			if heartbeatList[newPlayer.UserId].LastContact == oldLastContact then
 				newPlayer:Kick("Client initiated disconnect.")
 			end
+			oldLastContact = heartbeatList[newPlayer.UserId].LastContact
 		end
 	end)
 end)

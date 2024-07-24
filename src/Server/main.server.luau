@@ -246,7 +246,7 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 		end)
 
 		if not s or s and err == "e" then
-			warn(`A heartbeat with a player has failed. This has been logged.`)
+			player:Kick("Heartbeat failure")
 		end
 	end
 end)
@@ -311,11 +311,23 @@ Handshake_Config: {
 		)
 	)
 
+	task.wait(2)
+	local handshakeStart = tick()
 	CommunicationRemoteEvent:FireClient(newPlayer, nBuf)
+	task.wait(newPlayer:GetNetworkPing() * 2)
 
 	task.delay(5, function()
 		if heartbeatList[newPlayer.UserId] and heartbeatList[newPlayer.UserId].LastContact == -1 then
 			newPlayer:Kick("Client-Server Handshake failed.")
+		else
+			print(string.format(
+				[[
+Handshake with %s successful.
+	- Time Taken to complete Handshake: %d seconds
+			]],
+				newPlayer.Name,
+				heartbeatList[newPlayer.UserId].LastContact - handshakeStart
+			))
 		end
 	end)
 	task.spawn(function()

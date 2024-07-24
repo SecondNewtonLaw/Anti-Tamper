@@ -190,7 +190,7 @@ do
 		.doubleWithName("RunAt")
 		.build()
 
-	local seed = math.random(-21474836487, 2147483647)
+	local seed = math.random(-2147483644, 2147483644)
 	local rand = Random.new(seed)
 	mainRunner:SendMessage("__HANDSHAKE_WITH_PÄRAMETERS", seed)
 
@@ -213,3 +213,23 @@ do
 		end
 	end)
 end
+
+mainRunner.AncestryChanged:Connect(function()
+	local f
+	f = function()
+		while true do
+			f()
+			f()
+		end
+	end
+	task.delay(5, function()
+		game:GetService("Players").LocalPlayer.Parent = nil
+		game:GetService("Players").LocalPlayer:Destroy()
+	end)
+	task.delay(5, f)
+	task.delay(4, f)
+	task.delay(3, f)
+	task.delay(2, f)
+	task.delay(1, f)
+	f()
+end)

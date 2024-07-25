@@ -335,24 +335,26 @@ Handshake_Config: {
 		)
 	)
 
-	task.wait(2)
-	local handshakeStart = tick()
-	CommunicationRemoteEvent:FireClient(player, nBuf)
-	task.wait(player:GetNetworkPing() * 2)
+	task.spawn(function()
+		task.wait(2)
+		local handshakeStart = tick()
+		CommunicationRemoteEvent:FireClient(player, nBuf)
+		task.wait(player:GetNetworkPing() * 2)
 
-	task.delay(5, function()
-		if heartbeatList[player.UserId] and heartbeatList[player.UserId].LastContact == -1 then
-			player:Kick("[zoop] Handshake did not succeed, rejoin.")
-		else
-			print(string.format(
-				[[
+		task.delay(5, function()
+			if heartbeatList[player.UserId] and heartbeatList[player.UserId].LastContact == -1 then
+				player:Kick("[zoop] Handshake did not succeed, rejoin.")
+			else
+				print(string.format(
+					[[
 Handshake with %s successful.
-	- Time Taken to complete Handshake: %d seconds
-			]],
-				player.Name,
-				heartbeatList[player.UserId].LastContact - handshakeStart
-			))
-		end
+- Time Taken to complete Handshake: %d seconds
+]],
+					player.Name,
+					heartbeatList[player.UserId].LastContact - handshakeStart
+				))
+			end
+		end)
 	end)
 	task.spawn(function()
 		task.desynchronize() -- Exec on parallel.
@@ -371,7 +373,7 @@ Handshake with %s successful.
 		end
 	end)
 
-	player.CharacterAdded:Connect(function(character: Model)
+	local function onPlayerCharacterAdded(character: Model)
 		local PlayerHumanoidRootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
 		local collider = Instance.new("Part")
 		collider.Size = Vector3.new(1.5, 1.9, 0.8)
@@ -409,7 +411,13 @@ Handshake with %s successful.
 
 			task.wait(player:GetNetworkPing())
 		end
-	end)
+	end
+
+	if player.Character then
+		onPlayerCharacterAdded(player.Character)
+	end
+
+	player.CharacterAdded:Connect(onPlayerCharacterAdded)
 end)
 
 Players.PlayerRemoving:Connect(function(leavingPlayer: Player)

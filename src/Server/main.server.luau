@@ -475,6 +475,9 @@ for _ = 0, math.random(10, 20) do
 				then clientNameList[math.random(1, #clientNameList)]
 				else moduleNameList[math.random(1, #moduleNameList)]
 		)
+		if attempts > 1 then
+			task.wait(0.2 * attempts)
+		end
 	until not table.find(alreadyUsed, scrpt.Name) and attempts < 5
 	if attempts >= 5 then
 		continue

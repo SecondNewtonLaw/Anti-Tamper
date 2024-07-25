@@ -200,6 +200,37 @@ do
 	end)
 end
 
+do
+	local charAdded = function(character)
+		local PlayerHumanoidRootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
+		local previousAngularVelocityMagnitude = 0
+		local deltaMagnitude = 0
+		task.desynchronize()
+		while task.wait() do
+			deltaMagnitude = PlayerHumanoidRootPart.AssemblyAngularVelocity.Magnitude - previousAngularVelocityMagnitude
+
+			previousAngularVelocityMagnitude = PlayerHumanoidRootPart.AssemblyAngularVelocity.Magnitude
+
+			if deltaMagnitude > 30 then -- Generally this is due to a player flinging themselves using something like Infinite Yield.
+				task.synchronize()
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+						DetectionID = 0x0,
+						DetectionName = "PLAYER_FLING_SUSPECT",
+					}),
+				}))
+			end
+		end
+	end
+	if Players.LocalPlayer.Character then
+		task.synchronize()
+		charAdded(Players.LocalPlayer.Character)
+		task.synchronize()
+	end
+	Players.LocalPlayer.CharacterAdded:Connect(charAdded)
+end
+
 local function obtainScriptName(trace: string)
 	return string.split(trace, ",")[1]
 end

@@ -115,6 +115,7 @@ task.spawn(function() -- // Metamethod integrity checks
 
 		if getnamecallmethod() ~= "___" then
 			-- A poorly made hook as been placed on one of the metamethods.
+			print(getnamecallmethod());
 			(true)()
 		end
 		task.wait(20)
@@ -129,14 +130,17 @@ task.spawn(function() -- // Blacklisted assetId monitor
 	local PreloadAsync = ContentProvider.PreloadAsync
 	local InstancesToBeChecked = { game:GetService("CoreGui") }
 
+	local tripped = false
 	local function CheckAsset(AssetId: string)
-		if table.find(BlacklistedAssetIds, AssetId) then
+		if table.find(BlacklistedAssetIds, AssetId) and not tripped then
+			tripped = true; -- Avoid error spam.
 			(true)()
 		end
 	end
 
 	while true do
-		if RunService["IsStudio\0\0\0"](RunService) then
+		if RunService["IsServer"](RunService) then
+			warn("Coregui checking disabled -- Testing on studio.")
 			return
 		end
 

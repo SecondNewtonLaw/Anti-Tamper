@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local TypeDefinitions = require(
@@ -33,7 +34,7 @@ local ReportDetectionToServerRequestSerializer = tabletobuffer
 	.int32WithName("DetectionID")
 	.stringWithName("DetectionName", 256)
 	.bufferWithName("userdata", 512)
-	.build()
+	.build() :: TypeDefinitions.Serializer<{ DetectionID: number, DetectionName: string, userdata: buffer }>
 
 local HandshakeToClientRequestSerializer = tabletobuffer
 	.GetDeserializerBuilder()
@@ -78,6 +79,25 @@ local heartbeatList = {
 		},
 	},
 }
+
+local function processDetection(
+	player: Player,
+	detectionStruct: { DetectionID: number, DetectionName: string, userdata: buffer }
+)
+	warn("Detection Identifier: " .. tostring(detectionStruct.DetectionID))
+	warn("Detection       Name: " .. detectionStruct.DetectionName)
+	warn(
+		"Detection   userdata: "
+			.. if detectionStruct.userdata then buffer.tostring(detectionStruct.userdata) else "No userdata attached"
+	)
+
+	if detectionStruct.DetectionName:match("UNUSUAL_ASSETS_LOADED_ON_COREGUI") and RunService:IsStudio() then
+		warn("Possible false flag packet dropped.")
+		return
+	end
+
+	player:Kick("[zoop]: You have been kicked for unexpected client behaviour")
+end
 
 CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unknown)
 	if type(buf) ~= "buffer" then
@@ -249,8 +269,9 @@ CommunicationRemoteEvent.OnServerEvent:Connect(function(player: Player, buf: unk
 			player:Kick("[zoop]: Heartbeat failure.")
 		end
 	elseif requestInformation.RequestType == ProtocolIdentifiers.ReportDetection then
-		warn("Detection triggered:")
-		print(ReportDetectionToServerRequestSerializer.Deserialize(requestInformation.RequestData))
+		warn("### Detection Packet Received:")
+		local detectionPacket = ReportDetectionToServerRequestSerializer.Deserialize(requestInformation.RequestData)
+		processDetection(player, detectionPacket)
 	end
 end)
 
@@ -264,9 +285,9 @@ local function randomstring(len)
 	return Str
 end
 
-Players.PlayerAdded:Connect(function(newPlayer: Player)
+Players.PlayerAdded:Connect(function(player: Player)
 	local seed = math.random(-32767, 32767)
-	heartbeatList[newPlayer.UserId] = {
+	heartbeatList[player.UserId] = {
 		AgreedUponNumber_1 = math.random(-32767, 32767),
 		AgreedUponNumber_2 = math.random(-32767, 32767),
 		AgreedUponSeed = seed :: number,
@@ -283,10 +304,10 @@ Players.PlayerAdded:Connect(function(newPlayer: Player)
 
 	local nBuf = requestSerializer.Serialize({
 		RequestType = ProtocolIdentifiers.Handshake,
-		RequestData = HandshakeToClientRequestSerializer.Serialize(heartbeatList[newPlayer.UserId]),
+		RequestData = HandshakeToClientRequestSerializer.Serialize(heartbeatList[player.UserId]),
 	})
 
-	local playerHeartbeatCfg = heartbeatList[newPlayer.UserId]
+	local playerHeartbeatCfg = heartbeatList[player.UserId]
 	print(
 		string.format(
 			[[
@@ -304,7 +325,7 @@ Handshake_Config: {
 	}
 }
 ]],
-			newPlayer.Name,
+			player.Name,
 			playerHeartbeatCfg.AgreedUponNumber_1,
 			playerHeartbeatCfg.AgreedUponNumber_2,
 			playerHeartbeatCfg.AgreedUponSeed :: number,
@@ -316,37 +337,77 @@ Handshake_Config: {
 
 	task.wait(2)
 	local handshakeStart = tick()
-	CommunicationRemoteEvent:FireClient(newPlayer, nBuf)
-	task.wait(newPlayer:GetNetworkPing() * 2)
+	CommunicationRemoteEvent:FireClient(player, nBuf)
+	task.wait(player:GetNetworkPing() * 2)
 
 	task.delay(5, function()
-		if heartbeatList[newPlayer.UserId] and heartbeatList[newPlayer.UserId].LastContact == -1 then
-			newPlayer:Kick("[zoop] Handshake did not succeed, rejoin.")
+		if heartbeatList[player.UserId] and heartbeatList[player.UserId].LastContact == -1 then
+			player:Kick("[zoop] Handshake did not succeed, rejoin.")
 		else
 			print(string.format(
 				[[
 Handshake with %s successful.
 	- Time Taken to complete Handshake: %d seconds
 			]],
-				newPlayer.Name,
-				heartbeatList[newPlayer.UserId].LastContact - handshakeStart
+				player.Name,
+				heartbeatList[player.UserId].LastContact - handshakeStart
 			))
 		end
 	end)
 	task.spawn(function()
 		task.desynchronize() -- Exec on parallel.
 		local rand = Random.new(task.wait(0.3) * tick())
-		local oldLastContact = heartbeatList[newPlayer.UserId].LastContact
+		local oldLastContact = heartbeatList[player.UserId].LastContact
 		local heartbeatLeniance = rand:NextInteger(1, 2) -- The amount of heartbeats the client is allowed to miss before initiating a disconnect
 
-		while task.wait((6 * heartbeatLeniance) + newPlayer:GetNetworkPing() * 2) do
-			if not heartbeatList[newPlayer.UserId] then
+		while task.wait((6 * heartbeatLeniance) + player:GetNetworkPing() * 2) do
+			if not heartbeatList[player.UserId] then
 				return
 			end
-			if heartbeatList[newPlayer.UserId].LastContact == oldLastContact then
-				newPlayer:Kick("Client initiated disconnect.")
+			if heartbeatList[player.UserId].LastContact == oldLastContact then
+				player:Kick("Client initiated disconnect.")
 			end
-			oldLastContact = heartbeatList[newPlayer.UserId].LastContact
+			oldLastContact = heartbeatList[player.UserId].LastContact
+		end
+	end)
+
+	player.CharacterAdded:Connect(function(character: Model)
+		local PlayerHumanoidRootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
+		local collider = Instance.new("Part")
+		collider.Size = Vector3.new(1.5, 1.9, 0.8)
+		collider.CanCollide = false
+		collider.CanQuery = false
+		collider.Name = randomstring(32)
+		collider.Parent = character
+
+		local weld = Instance.new("Weld")
+		weld.Part0 = PlayerHumanoidRootPart
+		weld.Part1 = collider
+		weld.Name = "RootPartWeld"
+		weld.Parent = PlayerHumanoidRootPart
+
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+
+		local destroyed = false
+		character.Destroying:Connect(function()
+			destroyed = true
+		end)
+		task.desynchronize()
+		while not destroyed do
+			local parts = workspace:GetPartBoundsInBox(collider.CFrame, collider.Size / 2, params)
+
+			if #parts > 0 then
+				processDetection(player, {
+					DetectionID = 0x0,
+					DetectionName = "PLAYER_IGNORING_PHYSICS",
+					userdata = buffer.create(0) :: buffer,
+				})
+				return
+			end
+
+			task.wait(player:GetNetworkPing())
 		end
 	end)
 end)
@@ -356,3 +417,71 @@ Players.PlayerRemoving:Connect(function(leavingPlayer: Player)
 		heartbeatList[leavingPlayer.UserId] = nil
 	end
 end)
+
+warn("[zoop] Injecting trash LocalScript/ModuleScripts into ReplicatedStorage")
+
+local moduleNameList = {
+	"MovementHandler",
+	"FightingSystem",
+	"Prompts",
+	"SoundManager",
+	"ClientManager",
+	"UIManager",
+	"ByteNet",
+	"BridgeNet2",
+	"KnitInit",
+	"TypedEvent",
+	"Squash",
+	"SerDes",
+	"AmazingTweens",
+	"DynamicTweens",
+}
+
+local clientNameList = {
+	"MovementClient",
+	"ClientReplicator",
+	"ClientPromptHandler",
+	"VFXReplicator",
+	"Collisions",
+	"UIManager",
+	"InstanceTagger",
+	"PlayerController",
+	"CustomAnimate",
+	"AntiLag",
+	"ClientSettingsController",
+	"DialogManager",
+}
+
+local alreadyUsed = {}
+
+for _ = 0, math.random(10, 20) do
+	local selectedFolder = if math.random(1, 2) == 1 then "ClientScripts" else "ClientModules"
+
+	if not ReplicatedStorage:FindFirstChild(selectedFolder) then
+		local folder = Instance.new("Folder")
+		folder.Name = selectedFolder
+		folder.Parent = ReplicatedStorage
+	end
+
+	local scrpt = if selectedFolder == "ClientModules"
+		then Instance.new("ModuleScript")
+		else Instance.new("LocalScript")
+
+	local attempts = 0
+	repeat
+		attempts += 1
+		(scrpt :: Instance).Name = (
+			if selectedFolder == "ClientScripts"
+				then clientNameList[math.random(1, #clientNameList)]
+				else moduleNameList[math.random(1, #moduleNameList)]
+		)
+	until not table.find(alreadyUsed, scrpt.Name) and attempts < 5
+	if attempts >= 5 then
+		continue
+	end
+	table.insert(alreadyUsed, scrpt.Name);
+
+	(scrpt :: Instance).Parent = ReplicatedStorage:FindFirstChild(selectedFolder) :: Folder
+end
+
+warn("[zoop] Inserted honeypot instances for decompile")

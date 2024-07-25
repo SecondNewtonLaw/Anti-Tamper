@@ -155,8 +155,9 @@ do
 	local lastSuccess = tick()
 
 	Runner:BindToMessage("__GET_PLAYER_INFO", function(buf: buffer)
-		if not buf then
+		if not buf or not Players.LocalPlayer.Character then
 			return -- No buffer provided, no information to validate with.
+			-- or no player model.
 		end
 		local playerInfo = playerInformationSerializer.Deserialize(buf)
 
@@ -206,13 +207,54 @@ end
 local function obtainLineNumber(trace: string)
 	-- The last stack trace is what we care about.
 	-- We must avoid using strings other than light stuff, else we will getgcd with function consts/uprefs, bad stuff.
-	return string.split(trace, " ")[3]:split("\n")[1]
+	return tonumber(string.split(trace, " ")[3]:split("\n")[1])
 end
 
-local errorConnection = ScriptContext.Error:ConnectParallel(
+local errorsMap = {
+	-- Line Number -> Detection Packet (as Buffer)
+	[109] = ReportDetectionToServerRequestSerializer.Serialize({
+		DetectionID = 0x0,
+		DetectionName = "METAMETHOD_HOOK",
+	}),
+	[118] = ReportDetectionToServerRequestSerializer.Serialize({
+		DetectionID = 0x1,
+		DetectionName = "METAMETHOD_HOOK",
+	}),
+
+	[137] = ReportDetectionToServerRequestSerializer.Serialize({
+		DetectionID = 0x0,
+		DetectionName = "UNUSUAL_ASSETS_LOADED_ON_COREGUI",
+	}),
+}
+
+local errorConnection = ScriptContext.Error:Connect(
 	function(message: string, stackTrace: string, affectedContainer: LuaSourceContainer)
-		local s = string.match(message, "is not a valid member of DataModel")
+		local isInvalidDatamodelIndex = not not string.match(message, "is not a valid member of DataModel")
+
 		print(obtainScriptName(stackTrace), ":", obtainLineNumber(stackTrace))
+		if
+			isInvalidDatamodelIndex
+			and affectedContainer
+			and not affectedContainer:GetFullName():match("cloud_")
+			and not affectedContainer:GetFullName():match("user_")
+		then
+			zoopNet:FireServer(requestSerializer.Serialize({
+				RequestType = ProtocolIdentifiers.ReportDetection,
+				RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+					DetectionID = 0x0, --
+					DetectionName = "INDEX_INTO_DATAMODEL_WITHOUT_GETSERVICE",
+				}),
+			}))
+		end
+
+		if obtainScriptName(stackTrace) == "ReplicatedFirst.LocalScript" then
+			if errorsMap[obtainLineNumber(stackTrace)] then
+				zoopNet:FireServer(requestSerializer.Serialize({
+					RequestType = ProtocolIdentifiers.ReportDetection,
+					RequestData = errorsMap[obtainLineNumber(stackTrace)],
+				}))
+			end
+		end
 	end
 )
 
@@ -399,9 +441,10 @@ do
 		end)
 
 		task.spawn(function()
+			lastRunTime = tick()
 			while true do
 				task.wait(5)
-				if not lastRunTime or tick() - lastRunTime > 4 then
+				if not lastRunTime or tick() - lastRunTime > 8 then
 					cl_3()
 
 					zoopNet:FireServer(requestSerializer.Serialize({
@@ -414,5 +457,30 @@ do
 				end
 			end
 		end)
+	end)
+end
+
+local function randomstring(len)
+	local Str = ""
+
+	for _ = 1, len do
+		Str ..= string.char(math.random(1, 127))
+	end
+
+	return Str
+end
+
+for _, child in game:GetChildren() do
+	child.Name = randomstring(64)
+	child.Changed:Connect(function(propName)
+		if propName == "Name" then
+			zoopNet:FireServer(requestSerializer.Serialize({
+				RequestType = ProtocolIdentifiers.ReportDetection,
+				RequestData = ReportDetectionToServerRequestSerializer.Serialize({
+					DetectionID = 0x0,
+					DetectionName = "_DATAMODEL_CHILD_RENAME",
+				}),
+			}))
+		end
 	end)
 end
